@@ -1,0 +1,118 @@
+
+<pre>
+  Title: Simple Bit Keystore
+</pre>
+
+==Abstract==
+
+This BIP proposes an easy, portable way to store EC keys. 
+
+==Motivation==
+
+There are lot of existing formats for key stores, everything from jks to p12 to pfx.  It is complicated getting all the bits in place for storing a key in the correct format for a given key store implementation. There should be an easy to implement, portable format that works across a range of devices, including mobile and web.
+
+This portability is needed to make one's identity and keys interoperable across different wallets and platforms. As a JSON format, it makes it easier to use within web applications.
+
+The concept of a JSON based keystore is not new, as it has been implemented for the JSON Web Key concept used in OpenID Connect. 
+
+The Simple Bit Keystore specification is targeted toward Bitcoin developers, using exiting methods familiar to the community.
+
+==Specification==
+An implementation only needs to support EC keys so this simplifies the process. The format is in JSON.
+<pre>
+{  
+   "keys":[  
+      {  
+         "alias":"catalog.skubit.net",
+         "crv":"P-256",
+         "iv":"kFUrk3F0yE0NC9kXi6XHpw==",
+         "kty":"EC",
+         "pk":"TDkehBlIVE_0P4wSvQFFm_sI5X9KGQ9-ZWXmuix2l3ur6mGTQoxvD6b3iRV1B6ec"
+      }
+   ],
+   "scrypt":{  
+      "salt":"H5MtloYsaew=",
+      "p":1,
+      "n":512,
+      "r":8
+   }
+}
+</pre>
+
+To encrypt passwords, the scrypt protocol is required to be supported. This is a password-based KDF.
+
+{| class="wikitable"
+|+Scrypt
+|-
+|n
+| CPU/memory cost parameter.
+|-
+|p
+|Parallelization parameter
+|-
+|r
+|Blocksize in use for underlying hash
+|-
+|salt
+|Salt for the password (base64Url encoded)
+|}
+
+The other element is the array of key entries. Each key does not have an individual password. Key entries are encrypted using the global password in the scrypt element.
+
+{| class="wikitable"
+|+Key Entry
+|-
+|alias
+| The alias for the key
+|-
+|crv
+|Curve
+|-
+|iv
+|Initialization Vector
+|-
+|kty
+|key type
+|-
+|pk
+|Encrypted base64Url encoded private key
+|}
+
+
+==Reference Code==
+
+To import a keystore, a typical case to create a key(using bitcoinj and scrypt dependencies) would look like:
+<pre>
+ObjectMapper mapper = new ObjectMapper();
+KeyStore keystore = mapper.readValue(new FileInputStream(file), KeyStore.class);
+
+Protos.ScryptParameters.Builder scryptParametersBuilder
+    = Protos.ScryptParameters.newBuilder()
+     .setSalt(ByteString.copyFrom(base64Url().decode(keystore.getScrypt().getSalt())))
+     .setN(keystore.getScrypt().getN())
+     .setR(keystore.getScrypt().getR())
+     .setP(keystore.getScrypt().getP());
+
+KeyCrypterScrypt crypterScrypt 
+    = new KeyCrypterScrypt(scryptParametersBuilder.build());
+KeyParameter aesKey = crypterScrypt.deriveKey(password);
+
+for (KeyEntry entry : keystore.getKeys()) {
+    byte[] key = base64Url().decode(entry.getPk());
+    byte[] iv = base64Url().decode(entry.getIv());
+
+    EncryptedData data = new EncryptedData(iv, key);
+    ECKey ecKey = ECKey.fromPrivate(crypterScrypt.decrypt(data, aesKey));
+}
+</pre>
+
+==Implementations==
+An implementation can be found in the BitID Authenticator project
+https://github.com/skubit/bitid-android
+
+==References==
+http://en.wikipedia.org/wiki/Scrypt
+
+https://github.com/wg/scrypt
+
+http://self-issued.info/docs/draft-ietf-jose-json-web-key.html
