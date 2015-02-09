@@ -1,0 +1,155 @@
+
+<pre>
+  Title: TidBit Authentication (Token ID Bitcoin Authentication)
+</pre>
+
+==Abstract==
+
+This BIP proposes a way to authenticate and authorize services with bitcoin addresses. This allows the user to maintain a single identity across multiple nodes in the network.
+
+==Motivation==
+
+There is an existing protocol BitID that handles authentication with bitcoin addresses. This proposal expands on that concept by making it more extendible and more future-proof through the use of JWT. It also adds ways to provide 'scopes' to authorized access to resources. 
+
+Since BitID is already being implemented in the community and due to a desire not to create confusion, TidBit makes a break with BitID, rather than trying to further extend the protocol.
+
+This proposal is interoperable with existing systems because it uses digitally signed JSON Web Tokens (JWT) to package authentication requests. JWT is already used in numerous places, including OpenID Connect and Google Wallet. It has various implementations within the general community.
+
+TidBit expands on the existing uses of JWT by allowing the issuer to be any peer in the network, similar to how Bitcoin operates. Unlike JWT, TidBit requires that the iss be a hash of the public key, rather than an arbitrary (or user supplied) id.
+
+==Specification==
+
+The flow starts with a node (say a web server) thats displays a QR code to the user. The QR code contains a URL:
+
+<pre>
+tidbit://www.skubit.com/callback?x=NONCE
+</pre>
+
+{| class="wikitable"
+|+Protocol
+|-
+|tidbit
+| Protocol scheme
+|-
+|www.skubit.com
+|Domain
+|-
+|callback
+| Path
+|-
+|x
+|Nonce
+|}
+
+The application knows by the scheme that it is a tidbit request. So the application reconstructs the URL as
+
+<pre>
+https://www.skubit.com/callback?x=NONCE
+</pre>
+
+When the user scanned the code, the application takes the reconstructed URL above and makes a JWT request. The request consists of 3 parts: header, claims and the signature.
+
+===Header===
+The header consists of algorithm and message type.
+<pre>
+{
+    "alg": "ES256", 
+    "typ": "JWT"
+}
+
+</pre>
+
+===Claims===
+The claims would look something like:
+<pre>
+{  
+   "iss":"1MRE4fBYX1J6ggaYywv3KCnra4DeEVPYjx",
+   "iat":1423368909,
+   "jti":"51aYPQCkP0NMbNsZ",
+   "exp":1423369089,
+   "aud":"tidbit://catalog.skubit.net/rest/auth/tidbitCallback?x=51aYPQCkP0NMbNsZ",
+   "scope":"login"
+}
+</pre>
+
+{| class="wikitable"
+|+Claims
+|-
+|iss
+| Issuer of the claim. In this case, it is the bitcoin address (or BitID)
+|-
+|iat
+|Issued at claim. The timestamp that the claim was issued.
+|-
+|jti
+| JWT ID - this is the nonce for the request
+|-
+|exp
+|Expiration of the request. The receiving party should reject an expired request
+|-
+|aud
+|Audience - the recipients that the request is intended for. In this case it is the catalog server. If a party receives a request for a different audience, it should reject the request
+|-
+|scope
+| The scope for the request. Can be used to restrict or grant access to certain resources.
+
+|}
+
+The fields above are global fields. An application can extend the claims format to handle application specific information. 
+
+===Signature===
+The third part is the signature. Construct a message using
+<pre>
+\x18Bitcoin Signed Message:\n#{message.size.chr}#{message}
+</pre>
+where the {message} is
+<pre>
+base64URL(header) + "." + base64Url(claims)
+</pre>
+and then sign the message based on the algorithm defined in the header. Base64Url encode the signature.
+
+===Final Message===
+
+The final message looks something like this. 
+<pre>
+base64URL(header) + "." + base64Url(claims) + "." base64Url(signature)
+</pre>
+
+Each field is separated by a '.'
+<pre>
+eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxTVJFNGZCWVgxSjZnZ2FZeXd2M0tDbnJhNERlRVZQWWp4IiwiaWF0IjoxNDIzMzY4OTA5LCJqdGkiOiI1MWFZUFFDa1AwTk1iTnNaIiwiZXhwIjoxNDIzMzY5MDg5LCJhdWQiOiJ0aWRiaXQ6XC9cL2NhdGFsb2cuc2t1Yml0Lm5ldFwvcmVzdFwvYXV0aFwvdGlkYml0Q2FsbGJhY2s_eD01MWFZUFFDa1AwTk1iTnNaIiwic2NvcGUiOiJsb2dpbiJ9.H7B/V1s8myMvYVM4RvTU2bZDykBkpqpWeJiHVjNV2cvrEM1xKWFaZEo70onToHD4RjZci3OFIdiN30rVm4b+0Ao=
+</pre>
+
+You can try decoding this request at: https://developers.google.com/wallet/digital/docs/jwtdecoder
+==Response==
+The response consists of the following (although it can be extended with application specific requirements).
+
+<pre>
+{
+    "code": 0, 
+    "message": "You have logged in"
+}
+</pre>
+
+or
+
+<pre>
+{
+    "code": 902, 
+    "message": "Expired jti"
+}
+</pre>
+
+==Implementations==
+An implementation can be found in the BitID Authenticator project
+https://github.com/skubit/bitid-android
+
+For a test site:
+https://catalog.skubit.net
+
+==References==
+===JWT===
+http://self-issued.info/docs/draft-ietf-oauth-json-web-token.html
+
+===BitID===
+https://github.com/bitid/bitid/blob/master/BIP_draft.md
